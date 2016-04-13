@@ -34,6 +34,7 @@ namespace MySql.Server
         private string _dataRootDirectory;
 
         private IDBConnectionStringFactory _conStrFac;
+        private const string _mysqlExecName = "mysqld_test.exe";
 
         private MySqlConnection _myConnection;
         public MySqlConnection Connection { 
@@ -53,12 +54,6 @@ namespace MySql.Server
             this._mysqlDirectory = BaseDirHelper.GetBaseDir() + "\\tempServer";
             this._dataRootDirectory = this._mysqlDirectory + "\\data";
             this._dataDirectory = this._dataRootDirectory + "\\" + Guid.NewGuid() + "";
-
-            this.killProcesses();
-
-            this.createDirs();
-
-            this.extractMySqlFiles();
 
             this._conStrFac = conStrFac;
         }
@@ -121,9 +116,9 @@ namespace MySql.Server
         private void extractMySqlFiles()
         {
             try { 
-                if (!new FileInfo(this._mysqlDirectory + "\\mysqld.exe").Exists) {
+                if (!new FileInfo(this._mysqlDirectory + "\\" + _mysqlExecName).Exists) {
                     //Extracting the two MySql files needed for the standalone server
-                    File.WriteAllBytes(this._mysqlDirectory + "\\mysqld.exe", Properties.Resources.mysqld);
+                    File.WriteAllBytes(this._mysqlDirectory + "\\" + _mysqlExecName, Properties.Resources.mysqld);
                     File.WriteAllBytes(this._mysqlDirectory + "\\errmsg.sys", Properties.Resources.errmsg);
                 }
             }
@@ -133,14 +128,15 @@ namespace MySql.Server
             }
         }
 
-        private void killProcesses()
+        private void KillAllProcesses()
         {
             //Killing all processes with the name mysqld.exe
-            foreach (var process in Process.GetProcessesByName("mysqld"))
+            foreach (var process in Process.GetProcessesByName(Path.GetFileNameWithoutExtension(_mysqlExecName)))
             {
                 try
                 {
                     process.Kill();
+                    process.WaitForExit();
                 }
                 catch (Exception)
                 {
@@ -151,6 +147,12 @@ namespace MySql.Server
 
         public void StartServer()
         {
+            this.KillAllProcesses();
+
+            this.createDirs();
+
+            this.extractMySqlFiles();
+
             _process = new Process();
 
             var arguments = new[]
@@ -169,7 +171,7 @@ namespace MySql.Server
                 "--innodb_data_file_path=ibdata1:10M;ibdata2:10M:autoextend"
             };
 
-            _process.StartInfo.FileName = "\"" + this._mysqlDirectory + "\\mysqld.exe" + "\"";
+            _process.StartInfo.FileName = "\"" + this._mysqlDirectory + "\\" + _mysqlExecName + "\"";
             _process.StartInfo.Arguments = string.Join(" ", arguments);
             _process.StartInfo.UseShellExecute = false;
             _process.StartInfo.CreateNoWindow = true;
@@ -288,11 +290,12 @@ namespace MySql.Server
                 if (!this._process.HasExited)
                 {
                     this._process.Kill();
+                    _process.WaitForExit();
                 }
                 //System.Console.WriteLine("Process killed");
                 this._process.Dispose();
                 this._process = null;
-                this.killProcesses();
+                this.KillAllProcesses();
                 this.removeDirs();
             }
             catch (Exception e)
