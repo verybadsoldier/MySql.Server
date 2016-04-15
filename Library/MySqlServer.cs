@@ -98,17 +98,32 @@ namespace MySql.Server
         {
             string[] dirs = { this._mysqlDirectory, this._dataRootDirectory, this._dataDirectory };
 
+            const int MaxRetries = 10;
+            const int RetryPauseMs = 250;
+
             foreach (string dir in dirs)
             {
-                DirectoryInfo checkDir = new DirectoryInfo(dir);
-                try
+                int retryCount = 0;
+                while(true)
                 {
-                    if (checkDir.Exists)
-                        checkDir.Delete(true);
-                }
-                catch (Exception)
-                {
-                    System.Console.WriteLine("Could not delete directory: ", checkDir.FullName);
+                    DirectoryInfo checkDir = new DirectoryInfo(dir);
+                    try
+                    {
+                        if (checkDir.Exists)
+                            checkDir.Delete(true);
+                    }
+                    catch (Exception)
+                    {
+                        retryCount++;
+                        if (retryCount == MaxRetries)
+                        {
+                            System.Console.WriteLine("Could not delete directory: ", checkDir.FullName);
+                            throw;
+                        }
+                        Thread.Sleep(RetryPauseMs);
+                        continue;
+                    }
+                    break;
                 }
             }
         }
