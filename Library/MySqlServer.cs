@@ -162,7 +162,7 @@ namespace MySql.Server
 
         public void StartServer()
         {
-            this.KillAllProcesses();
+            ShutDown();
 
             this.createDirs();
 
@@ -293,7 +293,7 @@ namespace MySql.Server
 
         public void CloseConnection()
         {
-            if(this._myConnection.State != System.Data.ConnectionState.Closed)
+            if(this._myConnection != null && this._myConnection.State != System.Data.ConnectionState.Closed)
                 this._myConnection.Close();
         }
 
@@ -302,14 +302,17 @@ namespace MySql.Server
             try
             {
                 this.CloseConnection();
-                if (!this._process.HasExited)
+                if (this._process != null)
                 {
-                    this._process.Kill();
-                    _process.WaitForExit();
+                    if (!this._process.HasExited)
+                    {
+                        this._process.Kill();
+                        _process.WaitForExit();
+                    }
+                    //System.Console.WriteLine("Process killed");
+                    this._process.Dispose();
+                    this._process = null;
                 }
-                //System.Console.WriteLine("Process killed");
-                this._process.Dispose();
-                this._process = null;
                 this.KillAllProcesses();
                 this.removeDirs();
             }
