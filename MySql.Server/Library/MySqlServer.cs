@@ -75,6 +75,7 @@ namespace MySql.Server
             {
                 try { 
                     _process.Kill();
+                    _process.WaitForExit();
                 }
                 catch(Exception e)
                 {
@@ -87,6 +88,8 @@ namespace MySql.Server
 
             instance = null;
         }
+
+        public TimeSpan RemoveDirsTimeout { get; set; } = TimeSpan.FromMilliseconds(500);
 
         /// <summary>
         /// Get a connection string for the server (no database selected)
@@ -133,27 +136,31 @@ namespace MySql.Server
         /// <summary>
         /// Removes all directories related to the MySQL process
         /// </summary>
-        private void removeDirs(int retries)
+        private void removeDirs()
         {
             string[] dirs = { this._mysqlDirectory, this._dataRootDirectory, this._dataDirectory };
 
             foreach (string dir in dirs)
             {
+                var startTime = DateTime.Now;
                 DirectoryInfo checkDir = new DirectoryInfo(dir);
 
                 if (checkDir.Exists)
                 {
-                    int i = 0;
-                    while(i < retries)
+                    int numTry = 0;
+                    while(true)
                     {
                         try { 
                             checkDir.Delete(true);
-                            i = retries;
+                            break;
                         }
                         catch (Exception e)
                         {
                             System.Console.WriteLine("Could not delete directory: " + checkDir.FullName + e.Message);
-                            i++;
+                            numTry++;
+
+                            if (DateTime.Now - startTime > RemoveDirsTimeout)
+                                throw new Exception(string.Format("Removing directory '{0}' failed after {1} timeout!", dir, RemoveDirsTimeout), e);
                             Thread.Sleep(50);
                         }
                     }
@@ -165,7 +172,7 @@ namespace MySql.Server
             }
             catch(Exception e)
             {
-                System.Console.WriteLine("Could not delete runningInstancesFile");
+                throw new Exception("Could not delete runningInstancesFile", e);
             }
         }
 
@@ -228,12 +235,13 @@ namespace MySql.Server
 
             System.Console.WriteLine("Running " + _process.StartInfo.FileName + " " + String.Join(" ", arguments));
 
-            try { 
-                _process.Start();
+            try {
+                if (!_process.Start())
+                    throw new Exception("Process start returned false!");
                 File.WriteAllText(_runningInstancesFile, _process.Id.ToString());
             }
             catch(Exception e){
-                throw new Exception("Could not start server process: " + e.Message);
+                throw new Exception("Could not start server process: " + e.Message, e);
             }
 
             this.waitForStartup();
@@ -245,6 +253,8 @@ namespace MySql.Server
         /// <param name="serverPort">The port on which the server should listen</param>
         public void StartServer(int serverPort)
         {
+            Trace.Write("STARTING\n");
+
             _serverPort = serverPort;
             StartServer();
         }
@@ -255,6 +265,7 @@ namespace MySql.Server
         ///
         private void waitForStartup()
         {
+            Trace.Write("waitForStartup - 1\n");
             int totalWaitTime = 0;
             int sleepTime = 100;
 
@@ -267,6 +278,7 @@ namespace MySql.Server
             
             while (!_testConnection.State.Equals(System.Data.ConnectionState.Open))
             {
+                Trace.Write("waitForStartup - 2\n");
                 if (totalWaitTime > 10000)
                     throw new Exception("Server could not be started." + lastException.Message);
 
@@ -288,23 +300,29 @@ namespace MySql.Server
             _testConnection.Close();
             _testConnection.Dispose();
             _testConnection = null;
+            Trace.Write("waitForStartup - 3\n");
+
         }
 
         public void KillPreviousProcesses()
         {
+            Trace.Write("KillPreviousProcesses - 1\n");
+
             if (!File.Exists(_runningInstancesFile))
                 return;
 
             string[] runningInstancesIds = File.ReadAllLines(_runningInstancesFile);
 
-            for(int i = 0; i < runningInstancesIds.Length; i++)
+            for (int i = 0; i < runningInstancesIds.Length; i++)
             {
+                Trace.Write("KillPreviousProcesses - 2\n");
                 try
                 {
                     Process p = Process.GetProcessById(Int32.Parse(runningInstancesIds[i]));
                     p.Kill();
+                    p.WaitForExit();
                 }
-                catch(Exception e)
+                catch (Exception e)
                 {
                     System.Console.WriteLine("Could not kill process: " + e.Message);
                 }
@@ -318,7 +336,11 @@ namespace MySql.Server
                 System.Console.WriteLine("Could not delete running instances file");
             }
 
-            this.removeDirs(10);
+            Trace.Write("KillPreviousProcesses - 3\n");
+
+            Trace.Write("KillPreviousProcesses - 5\n");
+
+            this.removeDirs();
         }
 
         /// <summary>
@@ -326,13 +348,23 @@ namespace MySql.Server
         /// </summary>
         public void ShutDown()
         {
+            Trace.Write("ShutDown - 1\n");
+            if (this._testConnection != null && this._testConnection.State != System.Data.ConnectionState.Closed)
+                this._testConnection.Close();
+
             try
             {
-                if (_process != null && !_process.HasExited)
+                if (this._process != null)
                 {
-                    _process.Kill();
-                    _process.WaitForExit();
-                    _process = null;
+                    Trace.Write("ShutDown - 2\n");
+                    if (!this._process.HasExited)
+                    {
+                        Trace.Write("ShutDown - 3\n");
+                        this._process.Kill();
+                        _process.WaitForExit();
+                    }
+                    //System.Console.WriteLine("Process killed");
+                    this._process = null;
                 }
 
                 //System.Console.WriteLine("Process killed");
@@ -343,7 +375,7 @@ namespace MySql.Server
                 throw;
             }
 
-            removeDirs(10);
+            removeDirs();
         }
     }
 }
