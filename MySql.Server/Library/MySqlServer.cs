@@ -309,6 +309,13 @@ namespace MySql.Server
         {
             Trace.Write("KillPreviousProcesses - 1\n");
 
+            var processes = Process.GetProcessesByName(Path.GetFileNameWithoutExtension(_MYSQLEXE));
+            foreach (var p in processes)
+            {
+                p.Kill();
+                p.WaitForExit();
+            }
+
             if (!File.Exists(_runningInstancesFile))
                 return;
 
